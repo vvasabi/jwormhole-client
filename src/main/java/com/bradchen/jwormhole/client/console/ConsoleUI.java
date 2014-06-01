@@ -10,10 +10,13 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public final class ConsoleUI {
 
 	private static final String DEFAULT_SETTING_KEY = "default";
+	private static final Pattern HOST_KEY_PATTERN = Pattern.compile("^[-_.a-z0-9]+$",
+		Pattern.CASE_INSENSITIVE);
 
 	private final String[] args;
 	private final List<CommandHandler> commandHandlers;
@@ -35,9 +38,10 @@ public final class ConsoleUI {
 		}
 
 		final int localPort = Integer.parseInt(args[0]);
+		final String hostName = (args.length >= 2) ? args[1] : null;
 		final Client client = new Client(DEFAULT_SETTING_KEY, new ConsoleUserInfo());
 		client.connect();
-		Host host = client.createHost();
+		Host host = client.createHost(hostName);
 		if (host == null) {
 			client.shutdown();
 			System.err.println("jWormhole server unavailable.");
@@ -67,16 +71,16 @@ public final class ConsoleUI {
 	}
 
 	private void showCommandHint() {
-		List<String> hints = new ArrayList<>(commandHandlers.size());
+		List<String> allHints = new ArrayList<>(commandHandlers.size());
 		for (CommandHandler handler : commandHandlers) {
-			String hint = handler.getCommandHint();
-			if (hint != null) {
-				hints.add(hint);
+			List<String> hints = handler.getCommandHints();
+			if (hints != null) {
+				allHints.addAll(hints);
 			}
 		}
 		System.out.print("Please enter command");
-		if (hints.size() > 0) {
-			System.out.print(" (" + StringUtils.join(hints, ", ") + ")");
+		if (allHints.size() > 0) {
+			System.out.print(" (" + StringUtils.join(allHints, ", ") + ")");
 		}
 		System.out.println(":");
 	}
@@ -84,6 +88,10 @@ public final class ConsoleUI {
 	private boolean validateArgs() {
 		if (args.length < 1) {
 			System.err.println("Please specify local port.");
+			return false;
+		}
+		if ((args.length >= 2) && !HOST_KEY_PATTERN.matcher(args[1]).matches()) {
+			System.err.println("Invalid host name.");
 			return false;
 		}
 		return true;

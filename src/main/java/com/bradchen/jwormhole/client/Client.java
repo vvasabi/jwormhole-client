@@ -1,11 +1,11 @@
 package com.bradchen.jwormhole.client;
 
-import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.UserInfo;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,6 +13,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.net.Socket;
 import java.nio.charset.Charset;
 import java.util.Properties;
 import java.util.concurrent.Executors;
@@ -33,6 +35,7 @@ public class Client {
 	private static final String PRIVATE_KEY_FILE = ".ssh/id_rsa";
 	private static final String KNOWN_HOSTS_FILE = ".ssh/known_hosts";
 	private static final Charset UTF8_CHARSET = Charset.forName("utf-8");
+	private static final String LOCALHOST = "127.0.0.1";
 	private static final long RENEW_PERIOD = 20;
 
 	private final Settings settings;
@@ -40,6 +43,7 @@ public class Client {
 	private final UserInfo userInfo;
 	private final ScheduledExecutorService scheduler;
 	private Session session;
+	private int localControllerPort;
 
 	public Client(String settingKey, UserInfo userInfo) throws IOException {
 		this.settings = new Settings(readDefaultSettings(), readOverrideSettings(), settingKey);
@@ -69,6 +73,10 @@ public class Client {
 			session.setUserInfo(userInfo);
 			enableSessionCompression();
 			session.connect();
+
+			// enable controller socket connection
+			localControllerPort = session.setPortForwardingL(0, LOCALHOST,
+				settings.getServerControllerPort());
 		} catch (JSchException exception) {
 			throw new RuntimeException(exception);
 		}
@@ -80,25 +88,26 @@ public class Client {
 		session.setConfig("compression_level", "9");
 	}
 
-	public Host createHost() throws IOException {
-		try {
-			CommandResult result = executeCommand("createHost");
-			if (result.getReturnCode() != 0) {
-				return null;
-			}
-			String[] tokens = result.getOutput().trim().split(",");
-			if (tokens.length != 2) {
-				return null;
-			}
-			return new Host(tokens[0], Integer.parseInt(tokens[1]));
-		} catch (JSchException exception) {
-			throw new RuntimeException(exception);
+	public Host createHost(String hostName) throws IOException {
+		String result;
+		if (hostName == null) {
+			result = executeCommand("createHost");
+		} else {
+			result = executeCommand("createHost " + hostName);
 		}
+		if (StringUtils.isBlank(result)) {
+			return null;
+		}
+		String[] tokens = result.trim().split(",");
+		if (tokens.length != 2) {
+			return null;
+		}
+		return new Host(tokens[0], Integer.parseInt(tokens[1]));
 	}
 
 	public void proxyLocalPort(Host host, int localPort) {
 		try {
-			session.setPortForwardingR(host.getPort(), "localhost", localPort);
+			session.setPortForwardingR(host.getPort(), LOCALHOST, localPort);
 			scheduler.scheduleAtFixedRate(() -> {
 				try {
 					renewHost(host);
@@ -113,33 +122,25 @@ public class Client {
 	}
 
 	public void renewHost(Host host) throws IOException {
-		try {
-			executeCommand("renewHost " + host.getDomainName());
-		} catch (JSchException exception) {
-			throw new RuntimeException(exception);
-		}
+		executeCommand("renewHost " + host.getDomainName());
 	}
 
 	public void removeHost(Host host) throws IOException {
-		try {
-			executeCommand("removeHost " + host.getDomainName());
-		} catch (JSchException exception) {
-			throw new RuntimeException(exception);
-		}
+		executeCommand("removeHost " + host.getDomainName());
 	}
 
-	private CommandResult executeCommand(String command) throws JSchException, IOException {
-		ChannelExec channel = (ChannelExec)session.openChannel("exec");
-		try {
-			channel.setInputStream(null);
-			InputStream in = channel.getInputStream();
-			channel.setCommand("echo " + escapeCommandArgument(command) + " | nc localhost " +
-				settings.getServerControllerPort());
-			channel.connect();
+	private String executeCommand(String command) throws IOException {
+		try (Socket socket = new Socket(LOCALHOST, localControllerPort)) {
+			PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
+			InputStream in = socket.getInputStream();
+			writer.println(command);
 			StringBuilder sb = new StringBuilder();
-			while (channel.isConnected() || (in.available() > 0)) {
-				byte[] bytes = new byte[1024];
+			byte[] bytes = new byte[1024];
+			while (socket.isConnected()) {
 				int bytesRead = in.read(bytes);
+				if (bytesRead == -1) {
+					break;
+				}
 				if (bytesRead > 0) {
 					sb.append(new String(bytes, 0, bytesRead, UTF8_CHARSET));
 				}
@@ -150,15 +151,8 @@ public class Client {
 					// ignored
 				}
 			}
-			channel.disconnect();
-			return new CommandResult(sb.toString(), channel.getExitStatus());
-		} finally {
-			channel.disconnect();
+			return sb.toString();
 		}
-	}
-
-	private static String escapeCommandArgument(String arg) {
-		return "'" + arg.replace("'", "'\\''") + "'";
 	}
 
 	public void shutdown() {

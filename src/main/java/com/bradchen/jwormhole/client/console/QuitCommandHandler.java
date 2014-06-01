@@ -4,12 +4,14 @@ import com.bradchen.jwormhole.client.Client;
 import com.bradchen.jwormhole.client.Host;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 
 public class QuitCommandHandler implements CommandHandler {
 
 	@Override
-	public String getCommandHint() {
-		return "q to quit";
+	public List<String> getCommandHints() {
+		return Arrays.asList("q to quit");
 	}
 
 	@Override
