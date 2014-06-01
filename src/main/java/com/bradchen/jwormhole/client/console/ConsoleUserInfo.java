@@ -1,4 +1,4 @@
-package com.bradchen.jwormhole.client;
+package com.bradchen.jwormhole.client.console;
 
 import com.jcraft.jsch.UserInfo;
 import org.apache.commons.io.IOUtils;
@@ -8,13 +8,13 @@ import java.io.Console;
 import java.io.IOException;
 import java.io.InputStreamReader;
 
-public class CommandLineUserInfo implements UserInfo {
+public class ConsoleUserInfo implements UserInfo {
 
 	private final Console console;
 	private String passphrase;
 	private String password;
 
-	public CommandLineUserInfo() {
+	public ConsoleUserInfo() {
 		this.console = System.console();
 	}
 

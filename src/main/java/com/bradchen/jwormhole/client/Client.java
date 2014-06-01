@@ -120,6 +120,14 @@ public class Client {
 		}
 	}
 
+	public void removeHost(Host host) throws IOException {
+		try {
+			executeCommand("removeHost " + host.getDomainName());
+		} catch (JSchException exception) {
+			throw new RuntimeException(exception);
+		}
+	}
+
 	private CommandResult executeCommand(String command) throws JSchException, IOException {
 		ChannelExec channel = (ChannelExec)session.openChannel("exec");
 		try {
