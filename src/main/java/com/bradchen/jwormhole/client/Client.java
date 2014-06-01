@@ -6,6 +6,8 @@ import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.UserInfo;
 import org.apache.commons.io.IOUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -13,8 +15,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class Client {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(Client.class);
 
 	// in class path
 	private static final String DEFAULT_SETTINGS_FILE = "settings.default.properties";
@@ -26,16 +33,19 @@ public class Client {
 	private static final String PRIVATE_KEY_FILE = ".ssh/id_rsa";
 	private static final String KNOWN_HOSTS_FILE = ".ssh/known_hosts";
 	private static final Charset UTF8_CHARSET = Charset.forName("utf-8");
+	private static final long RENEW_PERIOD = 20;
 
 	private final Settings settings;
 	private final JSch jsch;
 	private final UserInfo userInfo;
+	private final ScheduledExecutorService scheduler;
 	private Session session;
 
 	public Client(String settingKey, UserInfo userInfo) throws IOException {
 		this.settings = new Settings(readDefaultSettings(), readOverrideSettings(), settingKey);
 		this.jsch = new JSch();
 		this.userInfo = userInfo;
+		this.scheduler = Executors.newScheduledThreadPool(1);
 	}
 
 	public void connect() throws IOException {
@@ -89,6 +99,14 @@ public class Client {
 	public void proxyLocalPort(Host host, int localPort) {
 		try {
 			session.setPortForwardingR(host.getPort(), "localhost", localPort);
+			scheduler.scheduleAtFixedRate(() -> {
+				try {
+					renewHost(host);
+				} catch (IOException exception) {
+					LOGGER.error("Failed to renew host: " + host.getDomainName(), exception);
+					shutdown();
+				}
+			}, RENEW_PERIOD, RENEW_PERIOD, TimeUnit.SECONDS);
 		} catch (JSchException exception) {
 			throw new RuntimeException(exception);
 		}
@@ -96,7 +114,7 @@ public class Client {
 
 	public void renewHost(Host host) throws IOException {
 		try {
-			CommandResult result = executeCommand("renewHost " + host.getDomainName());
+			executeCommand("renewHost " + host.getDomainName());
 		} catch (JSchException exception) {
 			throw new RuntimeException(exception);
 		}
@@ -135,7 +153,7 @@ public class Client {
 		return "'" + arg.replace("'", "'\\''") + "'";
 	}
 
-	public void disconnect() {
+	public void shutdown() {
 		if (session != null) {
 			session.disconnect();
 		}
