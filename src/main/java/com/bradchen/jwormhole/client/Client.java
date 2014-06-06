@@ -52,8 +52,8 @@ public class Client {
 	private int localControllerPort;
 	private int numRetries;
 
-	public Client(String settingKey, UserInfo userInfo) throws IOException {
-		this.settings = new Settings(readDefaultSettings(), readOverrideSettings(), settingKey);
+	public Client(String server, UserInfo userInfo) throws IOException {
+		this.settings = new Settings(readDefaultSettings(), readOverrideSettings(), server);
 		this.jsch = new JSch();
 		this.userInfo = userInfo;
 		this.connectionClosedHandlers = new ArrayList<>();
@@ -268,7 +268,7 @@ public class Client {
 					LOGGER.warn("Unable to connect to jWormhole server.", exception);
 					shutdown();
 					connectionClosedHandlers.parallelStream().forEach(handler ->
-						handler.connectionClosed(localPort, host.getDomainName()));
+							handler.connectionClosed(localPort, host.getDomainName()));
 				}
 			}
 		}

@@ -1,6 +1,11 @@
 package com.bradchen.jwormhole.client.console;
 
 import com.bradchen.jwormhole.client.Client;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.ParseException;
+import org.apache.commons.cli.PosixParser;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 
@@ -30,21 +35,33 @@ public final class ConsoleUI {
 		commandHandlers.add(commandHandler);
 	}
 
-	public void run() throws IOException {
+	public void run() throws IOException, ParseException {
 		if (!validateArgs()) {
 			System.exit(1);
 			return;
 		}
 
-		final int localPort = Integer.parseInt(args[0]);
-		final String hostName = (args.length >= 2) ? args[1] : null;
-		final Client client = new Client(DEFAULT_SETTING_KEY, new ConsoleUserInfo());
+		// parse command line arguments
+		Options options = new Options();
+		options.addOption("n", "name", true, "custom host name");
+		options.addOption("s", "server", true, "server");
+		CommandLineParser parser = new PosixParser();
+		CommandLine commandLine = parser.parse(options, args);
+		List<String> arguments = (List<String>)commandLine.getArgList();
+		if (arguments.size() != 1) {
+			throw new RuntimeException("Invalid arguments: " + StringUtils.join(arguments, " "));
+		}
+
+		final int localPort = Integer.parseInt(arguments.get(0));
+		final String hostName = commandLine.getOptionValue("n");
+		final String server = commandLine.getOptionValue("s", DEFAULT_SETTING_KEY);
+		final Client client = new Client(server, new ConsoleUserInfo());
 		client.addConnectionClosedHandler(new ConsoleConnectionClosedHandler());
 		client.connect();
 		String domainName = client.proxyLocalPort(localPort, hostName);
 		if (domainName == null) {
 			client.shutdown();
-			System.err.println("jWormhole server unavailable.");
+			System.err.println("jWormhole server unavailable on this server.");
 			System.exit(1);
 			return;
 		}
