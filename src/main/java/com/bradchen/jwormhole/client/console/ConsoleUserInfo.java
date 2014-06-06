@@ -1,5 +1,6 @@
 package com.bradchen.jwormhole.client.console;
 
+import com.jcraft.jsch.UIKeyboardInteractive;
 import com.jcraft.jsch.UserInfo;
 import org.apache.commons.io.IOUtils;
 
@@ -8,7 +9,7 @@ import java.io.Console;
 import java.io.IOException;
 import java.io.InputStreamReader;
 
-public class ConsoleUserInfo implements UserInfo {
+public class ConsoleUserInfo implements UIKeyboardInteractive, UserInfo {
 
 	private final Console console;
 	private String passphrase;
@@ -16,6 +17,16 @@ public class ConsoleUserInfo implements UserInfo {
 
 	public ConsoleUserInfo() {
 		this.console = System.console();
+	}
+
+	@Override
+	public String[] promptKeyboardInteractive(String destination, String name, String instruction,
+											  String[] prompt, boolean[] echo) {
+		String[] results = new String[prompt.length];
+		for (int i = 0; i < prompt.length; i++) {
+			results[i] = promptForPassword(prompt[i]);
+		}
+		return results;
 	}
 
 	@Override
@@ -42,7 +53,7 @@ public class ConsoleUserInfo implements UserInfo {
 
 	private String promptForPassword(String prompt) {
 		if (console == null) {
-			System.out.print(prompt + ": ");
+			System.out.print(prompt + " ");
 			BufferedReader reader = null;
 			try {
 				reader = new BufferedReader(new InputStreamReader(System.in));
@@ -53,7 +64,7 @@ public class ConsoleUserInfo implements UserInfo {
 				IOUtils.closeQuietly(reader);
 			}
 		} else {
-			return new String(console.readPassword("%s: ", prompt));
+			return new String(console.readPassword("%s ", prompt));
 		}
 	}
 

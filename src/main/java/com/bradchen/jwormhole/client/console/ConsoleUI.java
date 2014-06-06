@@ -1,7 +1,6 @@
 package com.bradchen.jwormhole.client.console;
 
 import com.bradchen.jwormhole.client.Client;
-import com.bradchen.jwormhole.client.Host;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 
@@ -41,17 +40,16 @@ public final class ConsoleUI {
 		final String hostName = (args.length >= 2) ? args[1] : null;
 		final Client client = new Client(DEFAULT_SETTING_KEY, new ConsoleUserInfo());
 		client.connect();
-		Host host = client.createHost(hostName);
-		if (host == null) {
+		String domainName = client.proxyLocalPort(localPort, hostName);
+		if (domainName == null) {
 			client.shutdown();
 			System.err.println("jWormhole server unavailable.");
 			System.exit(1);
 			return;
 		}
 
-		client.proxyLocalPort(host, localPort);
-		System.out.println("Proxying " + host.getDomainName() + " to localhost:" + localPort
-			+ "...");
+		Runtime.getRuntime().addShutdownHook(new Thread(client::shutdown));
+		System.out.println("Proxying " + domainName + " to localhost: " + localPort + "...");
 		BufferedReader reader = null;
 		String line;
 		try {
@@ -59,7 +57,7 @@ public final class ConsoleUI {
 			showCommandHint();
 			while ((line = reader.readLine()) != null) {
 				for (CommandHandler handler : commandHandlers) {
-					if (handler.handle(client, host, args, line)) {
+					if (handler.handle(client, args, line)) {
 						break;
 					}
 				}

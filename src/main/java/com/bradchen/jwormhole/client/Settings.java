@@ -10,6 +10,7 @@ public final class Settings {
 	private final int serverSshPort;
 	private final int serverControllerPort;
 	private final String serverUsername;
+	private final int keepaliveInterval;
 
 	public Settings(Properties defaults, Properties overrides, String overrideKey) {
 		serverSshHost = getSetting(defaults, overrides, overrideKey, "serverSshHost");
@@ -17,6 +18,8 @@ public final class Settings {
 		serverControllerPort = getSettingInteger(defaults, overrides, overrideKey,
 			"serverControllerPort");
 		serverUsername = getSetting(defaults, overrides, overrideKey, "serverUsername");
+		keepaliveInterval = getSettingInteger(defaults, overrides, overrideKey,
+			"keepaliveInterval");
 	}
 
 	private static int getSettingInteger(Properties defaults, Properties overrides,
@@ -47,6 +50,10 @@ public final class Settings {
 
 	public String getServerUsername() {
 		return serverUsername;
+	}
+
+	public int getKeepaliveInterval() {
+		return keepaliveInterval;
 	}
 
 }

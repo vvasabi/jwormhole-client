@@ -6,8 +6,6 @@ import com.jcraft.jsch.Session;
 import com.jcraft.jsch.UserInfo;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -23,8 +21,6 @@ import java.util.concurrent.TimeUnit;
 
 public class Client {
 
-	private static final Logger LOGGER = LoggerFactory.getLogger(Client.class);
-
 	// in class path
 	private static final String DEFAULT_SETTINGS_FILE = "settings.default.properties";
 
@@ -36,24 +32,26 @@ public class Client {
 	private static final String KNOWN_HOSTS_FILE = ".ssh/known_hosts";
 	private static final Charset UTF8_CHARSET = Charset.forName("utf-8");
 	private static final String LOCALHOST = "127.0.0.1";
-	private static final long RENEW_PERIOD = 20;
+	private static final int FAILED_ATTEMPTS_THRESHOLD = 3;
 
 	private final Settings settings;
 	private final JSch jsch;
 	private final UserInfo userInfo;
-	private final ScheduledExecutorService scheduler;
+	private ScheduledExecutorService scheduler;
 	private Session session;
+	private Host host;
+	private int localPort;
 	private int localControllerPort;
+	private int failedAttempts;
 
 	public Client(String settingKey, UserInfo userInfo) throws IOException {
 		this.settings = new Settings(readDefaultSettings(), readOverrideSettings(), settingKey);
 		this.jsch = new JSch();
 		this.userInfo = userInfo;
-		this.scheduler = Executors.newScheduledThreadPool(1);
 	}
 
 	public void connect() throws IOException {
-		if (session != null) {
+		if ((session != null) && session.isConnected()) {
 			return;
 		}
 
@@ -78,7 +76,7 @@ public class Client {
 			localControllerPort = session.setPortForwardingL(0, LOCALHOST,
 				settings.getServerControllerPort());
 		} catch (JSchException exception) {
-			throw new RuntimeException(exception);
+			throw new IOException(exception);
 		}
 	}
 
@@ -88,45 +86,98 @@ public class Client {
 		session.setConfig("compression_level", "9");
 	}
 
-	public Host createHost(String hostName) throws IOException {
+	public String proxyLocalPort(int localPort, String name) throws IOException {
 		String result;
-		if (hostName == null) {
+		if (name == null) {
 			result = executeCommand("createHost");
 		} else {
-			result = executeCommand("createHost " + hostName);
+			result = executeCommand("createHost " + name);
 		}
 		if (StringUtils.isBlank(result)) {
 			return null;
 		}
 		String[] tokens = result.trim().split(",");
-		if (tokens.length != 2) {
+		if (tokens.length != 3) {
 			return null;
 		}
-		return new Host(tokens[0], Integer.parseInt(tokens[1]));
+		host = new Host(tokens[0], tokens[1], Integer.parseInt(tokens[2]));
+		this.localPort = localPort;
+		establishLocalPortForwarding(localPort);
+		scheduleKeepaliveWorker();
+		return host.getDomainName();
 	}
 
-	public void proxyLocalPort(Host host, int localPort) {
+	private void scheduleKeepaliveWorker() {
+		if ((scheduler != null) && !scheduler.isShutdown()) {
+			scheduler.shutdown();
+		}
+
+		scheduler = Executors.newScheduledThreadPool(1);
+		scheduler.scheduleAtFixedRate(() -> {
+			if ((host == null) || (localPort <= 0)) {
+				return;
+			}
+
+			if (keepHostAlive()) {
+				failedAttempts = 0;
+			} else {
+				failedAttempts++;
+			}
+			if (failedAttempts >= FAILED_ATTEMPTS_THRESHOLD) {
+				shutdown();
+				throw new RuntimeException("Connection to jWormhole server lost.");
+			}
+		}, settings.getKeepaliveInterval(), settings.getKeepaliveInterval(), TimeUnit.SECONDS);
+	}
+
+	private boolean keepHostAlive() {
+		try {
+			session.sendKeepAliveMsg();
+			String response = executeCommand("keepHostAlive " + host.getDomainName());
+			if (StringUtils.isBlank(response)) {
+				return true;
+			}
+		} catch (Exception ignored) {
+		}
+
+		// connection unavailable; attempt to recreate connection
+		try {
+			shutdown();
+			connect();
+			proxyLocalPort(localPort, host.getName());
+		} catch (IOException exception) {
+			return false;
+		}
+		return true;
+	}
+
+	private void establishLocalPortForwarding(int localPort) throws IOException {
 		try {
 			session.setPortForwardingR(host.getPort(), LOCALHOST, localPort);
-			scheduler.scheduleAtFixedRate(() -> {
-				try {
-					renewHost(host);
-				} catch (IOException exception) {
-					LOGGER.error("Failed to renew host: " + host.getDomainName(), exception);
-					shutdown();
-				}
-			}, RENEW_PERIOD, RENEW_PERIOD, TimeUnit.SECONDS);
 		} catch (JSchException exception) {
-			throw new RuntimeException(exception);
+			throw new IOException(exception);
 		}
 	}
 
-	public void renewHost(Host host) throws IOException {
-		executeCommand("renewHost " + host.getDomainName());
+	public void shutdown() {
+		if (session != null) {
+			removeHost();
+			session.disconnect();
+		}
+		if (scheduler != null) {
+			scheduler.shutdown();
+		}
 	}
 
-	public void removeHost(Host host) throws IOException {
-		executeCommand("removeHost " + host.getDomainName());
+	private void removeHost() {
+		if (host == null) {
+			return;
+		}
+
+		try {
+			executeCommand("removeHost " + host.getDomainName());
+		} catch (IOException ignored) {
+		}
 	}
 
 	private String executeCommand(String command) throws IOException {
@@ -147,17 +198,10 @@ public class Client {
 
 				try {
 					Thread.sleep(100);
-				} catch (InterruptedException exception) {
-					// ignored
+				} catch (InterruptedException ignored) {
 				}
 			}
 			return sb.toString();
-		}
-	}
-
-	public void shutdown() {
-		if (session != null) {
-			session.disconnect();
 		}
 	}
 
