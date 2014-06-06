@@ -1,6 +1,4 @@
-package com.bradchen.jwormhole.client;
-
-import com.bradchen.jwormhole.client.console.ConsoleUI;
+package com.bradchen.jwormhole.client.console;
 
 import java.io.IOException;
 

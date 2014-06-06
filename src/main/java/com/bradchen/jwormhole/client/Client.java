@@ -6,6 +6,8 @@ import com.jcraft.jsch.Session;
 import com.jcraft.jsch.UserInfo;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -14,12 +16,16 @@ import java.io.InputStream;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class Client {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(Client.class);
 
 	// in class path
 	private static final String DEFAULT_SETTINGS_FILE = "settings.default.properties";
@@ -32,22 +38,33 @@ public class Client {
 	private static final String KNOWN_HOSTS_FILE = ".ssh/known_hosts";
 	private static final Charset UTF8_CHARSET = Charset.forName("utf-8");
 	private static final String LOCALHOST = "127.0.0.1";
-	private static final int FAILED_ATTEMPTS_THRESHOLD = 3;
+	private static final int MAX_NUM_RETRIES = 3;
+	private static final int RETRY_WAIT_TIME = 3;
 
 	private final Settings settings;
 	private final JSch jsch;
 	private final UserInfo userInfo;
+	private final List<ConnectionClosedHandler> connectionClosedHandlers;
 	private ScheduledExecutorService scheduler;
 	private Session session;
 	private Host host;
 	private int localPort;
 	private int localControllerPort;
-	private int failedAttempts;
+	private int numRetries;
 
 	public Client(String settingKey, UserInfo userInfo) throws IOException {
 		this.settings = new Settings(readDefaultSettings(), readOverrideSettings(), settingKey);
 		this.jsch = new JSch();
 		this.userInfo = userInfo;
+		this.connectionClosedHandlers = new ArrayList<>();
+	}
+
+	public void addConnectionClosedHandler(ConnectionClosedHandler handler) {
+		connectionClosedHandlers.add(handler);
+	}
+
+	public void removeConnectionClosedHandler(ConnectionClosedHandler handler) {
+		connectionClosedHandlers.remove(handler);
 	}
 
 	public void connect() throws IOException {
@@ -56,6 +73,7 @@ public class Client {
 		}
 
 		try {
+			scheduler = Executors.newScheduledThreadPool(1);
 			String knownHostsFilePath = getKnownHostsFilePath();
 			if (knownHostsFilePath != null) {
 				jsch.setKnownHosts(knownHostsFilePath);
@@ -108,47 +126,28 @@ public class Client {
 	}
 
 	private void scheduleKeepaliveWorker() {
-		if ((scheduler != null) && !scheduler.isShutdown()) {
-			scheduler.shutdown();
-		}
-
-		scheduler = Executors.newScheduledThreadPool(1);
 		scheduler.scheduleAtFixedRate(() -> {
 			if ((host == null) || (localPort <= 0)) {
 				return;
 			}
 
-			if (keepHostAlive()) {
-				failedAttempts = 0;
-			} else {
-				failedAttempts++;
-			}
-			if (failedAttempts >= FAILED_ATTEMPTS_THRESHOLD) {
-				shutdown();
-				throw new RuntimeException("Connection to jWormhole server lost.");
-			}
+			keepHostAlive();
 		}, settings.getKeepaliveInterval(), settings.getKeepaliveInterval(), TimeUnit.SECONDS);
 	}
 
-	private boolean keepHostAlive() {
+	private void keepHostAlive() {
 		try {
 			session.sendKeepAliveMsg();
 			String response = executeCommand("keepHostAlive " + host.getDomainName());
 			if (StringUtils.isBlank(response)) {
-				return true;
+				return;
 			}
 		} catch (Exception ignored) {
 		}
 
 		// connection unavailable; attempt to recreate connection
-		try {
-			shutdown();
-			connect();
-			proxyLocalPort(localPort, host.getName());
-		} catch (IOException exception) {
-			return false;
-		}
-		return true;
+		numRetries = 0;
+		scheduler.schedule(new ReconnectWorker(), 0, TimeUnit.SECONDS);
 	}
 
 	private void establishLocalPortForwarding(int localPort) throws IOException {
@@ -165,7 +164,7 @@ public class Client {
 			session.disconnect();
 		}
 		if (scheduler != null) {
-			scheduler.shutdown();
+			scheduler.shutdownNow();
 		}
 	}
 
@@ -249,6 +248,31 @@ public class Client {
 		Properties properties = new Properties();
 		properties.load(inputStream);
 		return properties;
+	}
+
+	private class ReconnectWorker implements Runnable {
+
+		@Override
+		public void run() {
+			try {
+				shutdown();
+				connect();
+				proxyLocalPort(localPort, host.getName());
+			} catch (IOException exception) {
+				numRetries++;
+				if (numRetries < MAX_NUM_RETRIES) {
+					LOGGER.warn("Failed to reestablish connection with jWormhole server. Will " +
+						"retry in " + RETRY_WAIT_TIME + " seconds...", exception);
+					scheduler.schedule(new ReconnectWorker(), RETRY_WAIT_TIME, TimeUnit.SECONDS);
+				} else {
+					LOGGER.warn("Unable to connect to jWormhole server.", exception);
+					shutdown();
+					connectionClosedHandlers.parallelStream().forEach(handler ->
+						handler.connectionClosed(localPort, host.getDomainName()));
+				}
+			}
+		}
+
 	}
 
 }

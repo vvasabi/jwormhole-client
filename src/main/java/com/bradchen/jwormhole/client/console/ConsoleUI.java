@@ -39,6 +39,7 @@ public final class ConsoleUI {
 		final int localPort = Integer.parseInt(args[0]);
 		final String hostName = (args.length >= 2) ? args[1] : null;
 		final Client client = new Client(DEFAULT_SETTING_KEY, new ConsoleUserInfo());
+		client.addConnectionClosedHandler(new ConsoleConnectionClosedHandler());
 		client.connect();
 		String domainName = client.proxyLocalPort(localPort, hostName);
 		if (domainName == null) {
