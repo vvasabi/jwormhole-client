@@ -1,0 +1,7 @@
+#!/bin/bash
+
+cd `dirname "$0"`
+pwd=`pwd`
+
+JAR="$pwd/jwormhole-client-1.0-SNAPSHOT.jar"
+java -jar $JAR $@

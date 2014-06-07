@@ -13,7 +13,7 @@ public class QuitCommandHandler implements CommandHandler {
 	}
 
 	@Override
-	public boolean handle(Client client, String[] args, String command) {
+	public boolean handle(Client client, String command) {
 		if ("q".equalsIgnoreCase(command) || "quit".equalsIgnoreCase(command)) {
 			client.shutdown();
 			System.exit(0);

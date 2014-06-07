@@ -2,6 +2,9 @@ package com.bradchen.jwormhole.client;
 
 import java.io.Serializable;
 
+/**
+ * Stores the parameters of the currently proxied local host.
+ */
 final class Host implements Serializable {
 
 	private static final long serialVersionUID = 1282196476329161208L;

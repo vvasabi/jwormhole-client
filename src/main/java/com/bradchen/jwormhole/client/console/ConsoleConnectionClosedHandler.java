@@ -1,8 +1,11 @@
 package com.bradchen.jwormhole.client.console;
 
-import com.bradchen.jwormhole.client.ConnectionClosedHandler;
+import com.bradchen.jwormhole.client.ConnectionLostHandler;
 
-public class ConsoleConnectionClosedHandler implements ConnectionClosedHandler {
+/**
+ * Exit the program if connection is lost.
+ */
+public class ConsoleConnectionClosedHandler implements ConnectionLostHandler {
 
 	@Override
 	public void connectionClosed(int localPort, String domainName) {

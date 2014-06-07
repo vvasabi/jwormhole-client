@@ -9,6 +9,9 @@ import java.io.Console;
 import java.io.IOException;
 import java.io.InputStreamReader;
 
+/**
+ * Terminal-based UserInfo implementation used to provide SSH passwords and pass phrases.
+ */
 public class ConsoleUserInfo implements UIKeyboardInteractive, UserInfo {
 
 	private final Console console;

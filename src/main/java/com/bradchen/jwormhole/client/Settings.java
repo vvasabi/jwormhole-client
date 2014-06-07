@@ -2,6 +2,9 @@ package com.bradchen.jwormhole.client;
 
 import java.util.Properties;
 
+/**
+ * Stores all settings read from properties files.
+ */
 public final class Settings {
 
 	private static final String SETTING_PREFIX = "jwormhole.client.";

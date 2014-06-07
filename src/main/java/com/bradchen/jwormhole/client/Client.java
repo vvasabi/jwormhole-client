@@ -23,6 +23,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * jWormhole client.
+ */
 public class Client {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(Client.class);
@@ -44,7 +47,7 @@ public class Client {
 	private final Settings settings;
 	private final JSch jsch;
 	private final UserInfo userInfo;
-	private final List<ConnectionClosedHandler> connectionClosedHandlers;
+	private final List<ConnectionLostHandler> connectionClosedHandlers;
 	private ScheduledExecutorService scheduler;
 	private Session session;
 	private Host host;
@@ -59,11 +62,18 @@ public class Client {
 		this.connectionClosedHandlers = new ArrayList<>();
 	}
 
-	public void addConnectionClosedHandler(ConnectionClosedHandler handler) {
+	public String getProxiedDomainName() {
+		if (host == null) {
+			return null;
+		}
+		return host.getDomainName();
+	}
+
+	public void addConnectionClosedHandler(ConnectionLostHandler handler) {
 		connectionClosedHandlers.add(handler);
 	}
 
-	public void removeConnectionClosedHandler(ConnectionClosedHandler handler) {
+	public void removeConnectionClosedHandler(ConnectionLostHandler handler) {
 		connectionClosedHandlers.remove(handler);
 	}
 

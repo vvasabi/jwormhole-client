@@ -16,6 +16,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
+/**
+ * A simple Terminal-based UI.
+ */
 public final class ConsoleUI {
 
 	private static final String DEFAULT_SETTING_KEY = "default";
@@ -75,7 +78,7 @@ public final class ConsoleUI {
 			showCommandHint();
 			while ((line = reader.readLine()) != null) {
 				for (CommandHandler handler : commandHandlers) {
-					if (handler.handle(client, args, line)) {
+					if (handler.handle(client, line)) {
 						break;
 					}
 				}
