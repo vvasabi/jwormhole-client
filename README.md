@@ -1,7 +1,7 @@
 # jWormhole Client
 
 This is the client code for the JVM- and SSH-based localhost tunnel tool, jWormhole. For more info
-about jWormhole, see the [jWormhole server](https://github.com/vvasabi/jwormhole-client) repo.
+about jWormhole, see the [jWormhole server](https://github.com/vvasabi/jwormhole-server) repo.
 
 
 ## Requirements
