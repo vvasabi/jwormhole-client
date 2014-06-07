@@ -4,13 +4,10 @@ import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.UserInfo;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
@@ -22,6 +19,8 @@ import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import static com.bradchen.jwormhole.client.SettingsUtils.*;
 
 /**
  * jWormhole client.
@@ -56,7 +55,9 @@ public class Client {
 	private int numRetries;
 
 	public Client(String server, UserInfo userInfo) throws IOException {
-		this.settings = new Settings(readDefaultSettings(), readOverrideSettings(), server);
+		Properties defaultSettings = getDefaultSettings();
+		Properties overrideSettings = getOverrideSettings();
+		this.settings = new Settings(defaultSettings, overrideSettings, server);
 		this.jsch = new JSch();
 		this.userInfo = userInfo;
 		this.connectionClosedHandlers = new ArrayList<>();
@@ -214,50 +215,20 @@ public class Client {
 		}
 	}
 
+	static Properties getDefaultSettings() throws IOException {
+		return readSettingsFromClassPathResource(DEFAULT_SETTINGS_FILE);
+	}
+
+	static Properties getOverrideSettings() throws IOException {
+		return readSettingsFromFileRelativeToHome(OVERRIDE_SETTINGS_FILE);
+	}
+
 	private static String getPrivateKeyFilePath() throws IOException {
-		return getFilePath(PRIVATE_KEY_FILE);
+		return getFilePathRelativeToHome(PRIVATE_KEY_FILE);
 	}
 
 	private static String getKnownHostsFilePath() {
-		return getFilePath(KNOWN_HOSTS_FILE);
-	}
-
-	private static String getFilePath(String relativePath) {
-		String path = System.getenv("HOME") + "/" + relativePath;
-		File file = new File(path);
-		return file.exists() ? path : null;
-	}
-
-	private static Properties readDefaultSettings() throws IOException {
-		ClassLoader tcl = Thread.currentThread().getContextClassLoader();
-		InputStream inputStream = null;
-		try {
-			inputStream = tcl.getResourceAsStream(DEFAULT_SETTINGS_FILE);
-			return readPropertiesFile(inputStream);
-		} finally {
-			IOUtils.closeQuietly(inputStream);
-		}
-	}
-
-	private static Properties readOverrideSettings() throws IOException {
-		File file = new File(System.getenv("HOME") + "/" + OVERRIDE_SETTINGS_FILE);
-		if (!file.exists()) {
-			return null;
-		}
-
-		InputStream inputStream = null;
-		try {
-			inputStream = new FileInputStream(file);
-			return readPropertiesFile(inputStream);
-		} finally {
-			IOUtils.closeQuietly(inputStream);
-		}
-	}
-
-	private static Properties readPropertiesFile(InputStream inputStream) throws IOException {
-		Properties properties = new Properties();
-		properties.load(inputStream);
-		return properties;
+		return getFilePathRelativeToHome(KNOWN_HOSTS_FILE);
 	}
 
 	private class ReconnectWorker implements Runnable {
