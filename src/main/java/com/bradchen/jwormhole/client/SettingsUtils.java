@@ -42,15 +42,14 @@ public final class SettingsUtils {
 		return properties;
 	}
 
-	public static int getSettingInteger(Properties defaults, Properties overrides,
-										String defaultPrefix, String overridePrefix, String key) {
-		return Integer.parseInt(getSetting(defaults, overrides, defaultPrefix, overridePrefix,
-			key));
-	}
-
 	public static String getSetting(Properties defaults, Properties overrides, String defaultPrefix,
 									String overridePrefix, String key) {
-		String overrideKey = defaultPrefix + "." + overridePrefix + "." + key;
+		String overrideKey;
+		if (overridePrefix == null) {
+			overrideKey = defaultPrefix + "." + key;
+		} else {
+			overrideKey = defaultPrefix + "." + overridePrefix + "." + key;
+		}
 		if ((overrides != null) && overrides.containsKey(overrideKey)) {
 			return (String)overrides.get(overrideKey);
 		}

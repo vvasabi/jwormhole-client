@@ -27,7 +27,8 @@ public final class Settings {
 
 	private static int getSettingInteger(Properties defaults, Properties overrides, String server,
 										 String key) {
-		return SettingsUtils.getSettingInteger(defaults, overrides, SETTING_PREFIX, server, key);
+		String setting = SettingsUtils.getSetting(defaults, overrides, SETTING_PREFIX, server, key);
+		return Integer.parseInt(setting);
 	}
 
 	private static String getSetting(Properties defaults, Properties overrides, String server,

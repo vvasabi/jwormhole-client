@@ -30,7 +30,7 @@ public class Client {
 	private static final Logger LOGGER = LoggerFactory.getLogger(Client.class);
 
 	// in class path
-	private static final String DEFAULT_SETTINGS_FILE = "settings.default.properties";
+	private static final String DEFAULT_SETTINGS_FILE = "client.default.properties";
 
 	// relative to $HOME
 	private static final String OVERRIDE_SETTINGS_FILE = ".jwormhole/client.properties";

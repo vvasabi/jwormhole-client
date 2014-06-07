@@ -13,8 +13,8 @@ about jWormhole, see the [jWormhole server](https://github.com/vvasabi/jwormhole
 ## Installation
 
 * Compile with `mvn package`.
-* Move `target/jwormhole-client-1.0-SNAPSHOT.jar` and `scripts/jwh` to any directory on your
-  `$PATH`, such as `/usr/local/jwormhole/bin` or `$HOME/bin`.
+* Move `target/jwormhole-client-1.0-SNAPSHOT-all-deps.jar` and `scripts/jwh` to any directory on
+  your `$PATH`, such as `/usr/local/jwormhole/bin` or `$HOME/bin`.
 * Create a configuration file (see the next section).
 
 

@@ -3,5 +3,5 @@
 cd `dirname "$0"`
 pwd=`pwd`
 
-JAR="$pwd/jwormhole-client-1.0-SNAPSHOT.jar"
+JAR="$pwd/jwormhole-client-1.0-SNAPSHOT-all-deps.jar"
 java -jar $JAR $@

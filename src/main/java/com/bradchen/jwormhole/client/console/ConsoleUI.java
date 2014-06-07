@@ -8,6 +8,8 @@ import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.PosixParser;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -21,6 +23,7 @@ import java.util.regex.Pattern;
  */
 public final class ConsoleUI {
 
+	private static final Logger LOGGER = LoggerFactory.getLogger(ConsoleUI.class);
 	private static final String DEFAULT_SETTING_KEY = "default";
 	private static final Pattern HOST_KEY_PATTERN = Pattern.compile("^[-_.a-z0-9]+$",
 		Pattern.CASE_INSENSITIVE);
@@ -77,10 +80,19 @@ public final class ConsoleUI {
 			reader = new BufferedReader(new InputStreamReader(System.in));
 			showCommandHint();
 			while ((line = reader.readLine()) != null) {
+				boolean handled = false;
 				for (CommandHandler handler : commandHandlers) {
-					if (handler.handle(client, line)) {
-						break;
+					try {
+						if (handler.handle(client, line)) {
+							handled = true;
+							break;
+						}
+					} catch (RuntimeException exception) {
+						LOGGER.error("Error occurred when trying to handle command", exception);
 					}
+				}
+				if (!handled) {
+					System.out.println("Unrecognized command: " + line);
 				}
 				showCommandHint();
 			}
