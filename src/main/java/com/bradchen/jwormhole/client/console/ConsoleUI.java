@@ -222,7 +222,7 @@ public final class ConsoleUI {
 				allHints.addAll(hints);
 			}
 		}
-		System.out.print("Please enter command");
+		System.out.print("\nPlease enter command");
 		if (allHints.size() > 0) {
 			System.out.print(" (" + StringUtils.join(allHints, ", ") + ")");
 		}
