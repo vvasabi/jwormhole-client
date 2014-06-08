@@ -15,12 +15,11 @@ import java.net.Socket;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import static com.bradchen.jwormhole.client.SettingsUtils.*;
+import static com.bradchen.jwormhole.client.SettingsUtils.getFilePathRelativeToHome;
 
 /**
  * jWormhole client.
@@ -28,12 +27,6 @@ import static com.bradchen.jwormhole.client.SettingsUtils.*;
 public class Client {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(Client.class);
-
-	// in class path
-	private static final String DEFAULT_SETTINGS_FILE = "client.default.properties";
-
-	// relative to $HOME
-	private static final String OVERRIDE_SETTINGS_FILE = ".jwormhole/client.properties";
 
 	// relative to $HOME
 	private static final String PRIVATE_KEY_FILE = ".ssh/id_rsa";
@@ -54,10 +47,8 @@ public class Client {
 	private int localControllerPort;
 	private int numRetries;
 
-	public Client(String server, UserInfo userInfo) throws IOException {
-		Properties defaultSettings = getDefaultSettings();
-		Properties overrideSettings = getOverrideSettings();
-		this.settings = new Settings(defaultSettings, overrideSettings, server);
+	public Client(Settings settings, UserInfo userInfo) throws IOException {
+		this.settings = settings;
 		this.jsch = new JSch();
 		this.userInfo = userInfo;
 		this.connectionClosedHandlers = new ArrayList<>();
@@ -213,14 +204,6 @@ public class Client {
 			}
 			return sb.toString();
 		}
-	}
-
-	static Properties getDefaultSettings() throws IOException {
-		return readSettingsFromClassPathResource(DEFAULT_SETTINGS_FILE);
-	}
-
-	static Properties getOverrideSettings() throws IOException {
-		return readSettingsFromFileRelativeToHome(OVERRIDE_SETTINGS_FILE);
 	}
 
 	private static String getPrivateKeyFilePath() throws IOException {

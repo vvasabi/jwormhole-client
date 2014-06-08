@@ -7,7 +7,7 @@ import java.util.Properties;
  */
 public final class Settings {
 
-	private static final String SETTING_PREFIX = "jwormhole.client";
+	public static final String SETTING_PREFIX = "jwormhole.client";
 
 	private final String serverSshHost;
 	private final int serverSshPort;

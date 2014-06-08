@@ -1,6 +1,8 @@
 package com.bradchen.jwormhole.client.console;
 
 import com.bradchen.jwormhole.client.Client;
+import com.bradchen.jwormhole.client.Settings;
+import com.bradchen.jwormhole.client.SettingsUtils;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.Options;
@@ -12,11 +14,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.lang.reflect.InvocationTargetException;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 import java.util.regex.Pattern;
+
+import static com.bradchen.jwormhole.client.SettingsUtils.readSettingsFromClassPathResource;
+import static com.bradchen.jwormhole.client.SettingsUtils.readSettingsFromFileRelativeToHome;
 
 /**
  * A simple Terminal-based UI.
@@ -24,8 +35,21 @@ import java.util.regex.Pattern;
 public final class ConsoleUI {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(ConsoleUI.class);
+
+	// in class path
+	private static final String DEFAULT_SETTINGS_FILE = "client.default.properties";
+
+	// relative to $HOME
+	private static final String OVERRIDE_SETTINGS_FILE = ".jwormhole/client.properties";
+
+	// plugins path, relative to $HOME
+	private static final String PLUGINS_PATH = ".jwormhole/plugins";
+
+	private static final String COMMAND_HANDLERS_SETTING = "console.commandHandlers";
 	private static final String DEFAULT_SETTING_KEY = "default";
 	private static final Pattern HOST_KEY_PATTERN = Pattern.compile("^[-_.a-z0-9]+$",
+		Pattern.CASE_INSENSITIVE);
+	private static final Pattern JAR_FILE_PATTERN = Pattern.compile("\\.jar$",
 		Pattern.CASE_INSENSITIVE);
 
 	private final String[] args;
@@ -34,7 +58,6 @@ public final class ConsoleUI {
 	public ConsoleUI(String[] args) {
 		this.args = args;
 		this.commandHandlers = new ArrayList<>();
-		addCommandHandler(new QuitCommandHandler());
 	}
 
 	public void addCommandHandler(CommandHandler commandHandler) {
@@ -58,16 +81,28 @@ public final class ConsoleUI {
 			throw new RuntimeException("Invalid arguments: " + StringUtils.join(arguments, " "));
 		}
 
+		// configure system
 		final int localPort = Integer.parseInt(arguments.get(0));
 		final String hostName = commandLine.getOptionValue("n");
 		final String server = commandLine.getOptionValue("s", DEFAULT_SETTING_KEY);
-		final Client client = new Client(server, new ConsoleUserInfo());
+		final Properties defaultSettings = getDefaultSettings();
+		final Properties overrideSettings = getOverrideSettings();
+		final Settings settings = new Settings(defaultSettings, overrideSettings, server);
+		loadCommandHandlers(defaultSettings, overrideSettings, server);
+
+		// start client
+		final Client client = new Client(settings, new ConsoleUserInfo());
 		client.addConnectionClosedHandler(new ConsoleConnectionClosedHandler());
 		client.connect();
 		String domainName = client.proxyLocalPort(localPort, hostName);
 		if (domainName == null) {
 			client.shutdown();
-			System.err.println("jWormhole server unavailable on this server.");
+			if (hostName == null) {
+				System.err.println("jWormhole server unavailable on this server.");
+			} else {
+				System.err.println("jWormhole server unavailable on this server, or specified " +
+					"host name unavailable.");
+			}
 			System.exit(1);
 			return;
 		}
@@ -99,6 +134,84 @@ public final class ConsoleUI {
 		} finally {
 			IOUtils.closeQuietly(reader);
 		}
+	}
+
+	private void loadCommandHandlers(Properties defaultSettings, Properties overrideSettings,
+									 String server) {
+		// default one bundled
+		addCommandHandler(new QuitCommandHandler());
+
+		// see if we need to load any..
+		String handlersSetting = SettingsUtils.getSetting(defaultSettings, overrideSettings,
+			Settings.SETTING_PREFIX, null, COMMAND_HANDLERS_SETTING);
+		if (StringUtils.isBlank(handlersSetting)) {
+			return;
+		}
+
+		// load jars
+		String pluginsPath = System.getenv("HOME") + File.separator + PLUGINS_PATH;
+		URL[] urls = getPluginJars(pluginsPath);
+		URLClassLoader classLoader = new URLClassLoader(urls, this.getClass().getClassLoader());
+
+		// initialize handlers
+		try {
+			for (String handlerClassName : handlersSetting.split(",")) {
+				if (StringUtils.isBlank(handlerClassName)) {
+					continue;
+				}
+				Class<?> handlerClass = Class.forName(handlerClassName.trim(), true, classLoader);
+				if (!CommandHandler.class.isAssignableFrom(handlerClass)) {
+					throw new RuntimeException("Invalid CommandHandler class: " +
+						handlerClass.getName());
+				}
+
+				CommandHandler handler = (CommandHandler)handlerClass.getConstructor()
+					.newInstance();
+				handler.configure(overrideSettings, server);
+				addCommandHandler(handler);
+			}
+		} catch (ClassNotFoundException exception) {
+			throw new RuntimeException("Unable to load CommandHandler class.", exception);
+		} catch (NoSuchMethodException | InstantiationException | IllegalAccessException |
+				InvocationTargetException exception) {
+			throw new RuntimeException("Unable to instantiate CommandHandler.", exception);
+		}
+	}
+
+	private static URL[] getPluginJars(String path) {
+		File directory = new File(path);
+		if (!directory.exists() || !directory.isDirectory()) {
+			return new URL[0];
+		}
+
+		try {
+			File[] files = directory.listFiles();
+			if (files == null) {
+				return new URL[0];
+			}
+
+			List<URL> urls = new ArrayList<>(files.length);
+			for (File file : files) {
+				if (!file.isFile() || !JAR_FILE_PATTERN.matcher(file.getName()).find()) {
+					continue;
+				}
+				urls.add(file.toURI().toURL());
+			}
+
+			URL[] result = new URL[urls.size()];
+			return urls.toArray(result);
+		} catch (MalformedURLException exception) {
+			throw new RuntimeException(exception);
+		}
+	}
+
+	private static Properties getDefaultSettings() throws IOException {
+		return readSettingsFromClassPathResource(Thread.currentThread().getContextClassLoader(),
+				DEFAULT_SETTINGS_FILE);
+	}
+
+	private static Properties getOverrideSettings() throws IOException {
+		return readSettingsFromFileRelativeToHome(OVERRIDE_SETTINGS_FILE);
 	}
 
 	private void showCommandHint() {

@@ -10,11 +10,11 @@ import java.util.Properties;
 
 public final class SettingsUtils {
 
-	public static Properties readSettingsFromClassPathResource(String path) throws IOException {
-		ClassLoader tcl = Thread.currentThread().getContextClassLoader();
+	public static Properties readSettingsFromClassPathResource(ClassLoader classLoader, String path)
+			throws IOException {
 		InputStream inputStream = null;
 		try {
-			inputStream = tcl.getResourceAsStream(path);
+			inputStream = classLoader.getResourceAsStream(path);
 			return readPropertiesFile(inputStream);
 		} finally {
 			IOUtils.closeQuietly(inputStream);
@@ -42,18 +42,18 @@ public final class SettingsUtils {
 		return properties;
 	}
 
-	public static String getSetting(Properties defaults, Properties overrides, String defaultPrefix,
+	public static String getSetting(Properties defaults, Properties overrides, String prefix,
 									String overridePrefix, String key) {
 		String overrideKey;
 		if (overridePrefix == null) {
-			overrideKey = defaultPrefix + "." + key;
+			overrideKey = prefix + "." + key;
 		} else {
-			overrideKey = defaultPrefix + "." + overridePrefix + "." + key;
+			overrideKey = prefix + "." + overridePrefix + "." + key;
 		}
 		if ((overrides != null) && overrides.containsKey(overrideKey)) {
 			return (String)overrides.get(overrideKey);
 		}
-		return (String)defaults.get(defaultPrefix + "." + key);
+		return (String)defaults.get(prefix + "." + key);
 	}
 
 	public static String getFilePathRelativeToHome(String relativePath) {

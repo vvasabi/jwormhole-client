@@ -5,13 +5,14 @@ import org.testng.annotations.Test;
 import java.io.IOException;
 import java.util.Properties;
 
+import static com.bradchen.jwormhole.client.SettingsUtils.readSettingsFromClassPathResource;
 import static org.testng.Assert.assertEquals;
 
 public class TestSettings {
 
 	@Test
 	public void testDefaultSettings() throws IOException {
-		Properties defaultSettings = Client.getDefaultSettings();
+		Properties defaultSettings = getDefaultSettings();
 		Settings settings = new Settings(defaultSettings, null, "default");
 		assertEquals(settings.getServerSshHost(), "");
 		assertEquals(settings.getServerSshPort(), 22);
@@ -22,7 +23,7 @@ public class TestSettings {
 
 	@Test
 	public void testOverrideSettings() throws IOException {
-		Properties defaultSettings = Client.getDefaultSettings();;
+		Properties defaultSettings = getDefaultSettings();
 		Settings settings = new Settings(defaultSettings, createOverrideSettings("default"),
 			"default");
 		assertEquals(settings.getServerSshHost(), "test-server");
@@ -34,8 +35,7 @@ public class TestSettings {
 
 	@Test
 	public void testOverrideSettingsWithCustomServer() throws IOException {
-		Properties defaultSettings = Client.getDefaultSettings();
-
+		Properties defaultSettings = getDefaultSettings();
 		Settings settings = new Settings(defaultSettings, createOverrideSettings("custom"),
 			"custom");
 		assertEquals(settings.getServerSshHost(), "test-server");
@@ -54,6 +54,11 @@ public class TestSettings {
 		overrideSettings.put(prefix + "serverControllerPort", "2345");
 		overrideSettings.put(prefix + "keepaliveInterval", "4321");
 		return overrideSettings;
+	}
+
+	private Properties getDefaultSettings() throws IOException {
+		return readSettingsFromClassPathResource(Thread.currentThread().getContextClassLoader(),
+			"client.default.properties");
 	}
 
 }
