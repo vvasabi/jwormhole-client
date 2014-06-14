@@ -3,20 +3,20 @@ package com.bradchen.jwormhole.client.console;
 import com.bradchen.jwormhole.client.Client;
 import com.bradchen.jwormhole.client.Settings;
 import com.bradchen.jwormhole.client.SettingsUtils;
+import jline.TerminalFactory;
+import jline.console.ConsoleReader;
+import jline.console.history.FileHistory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.PosixParser;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -44,6 +44,9 @@ public final class ConsoleUI {
 
 	// plugins path, relative to $HOME
 	private static final String PLUGINS_PATH = ".jwormhole/plugins";
+
+	// command history path, relative to $HOME
+	private static final String HISTORY_PATH = ".jwormhole/history";
 
 	private static final String COMMAND_HANDLERS_SETTING = "console.commandHandlers";
 	private static final String DEFAULT_SETTING_KEY = "default";
@@ -107,32 +110,48 @@ public final class ConsoleUI {
 			return;
 		}
 
-		Runtime.getRuntime().addShutdownHook(new Thread(client::shutdown));
-		System.out.println("Proxying " + domainName + " to localhost: " + localPort + "...");
-		BufferedReader reader = null;
-		String line;
-		try {
-			reader = new BufferedReader(new InputStreamReader(System.in));
-			showCommandHint();
-			while ((line = reader.readLine()) != null) {
-				boolean handled = false;
-				for (CommandHandler handler : commandHandlers) {
-					try {
-						if (handler.handle(client, line)) {
-							handled = true;
-							break;
-						}
-					} catch (RuntimeException exception) {
-						LOGGER.error("Error occurred when trying to handle command", exception);
-					}
-				}
-				if (!handled) {
-					System.out.println("Unrecognized command: " + line);
-				}
-				showCommandHint();
+		// load history and register shutdown hook
+		System.out.println("Proxying " + domainName + " to localhost:" + localPort + "...");
+		String historyFilePath = System.getenv("HOME") + File.separator + HISTORY_PATH;
+		final FileHistory history = new FileHistory(new File(historyFilePath));
+		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+			client.shutdown();
+			try {
+				history.flush();
+			} catch (IOException ignored) {
 			}
-		} finally {
-			IOUtils.closeQuietly(reader);
+			try {
+				TerminalFactory.get().restore();
+			} catch (Exception ignored) {
+			}
+		}));
+
+		// start to read line from console
+		showCommandHint();
+		ConsoleReader console = new ConsoleReader();
+		console.setHistory(history);
+		console.setPrompt("> ");
+		String line;
+		while ((line = console.readLine()) != null) {
+			if (StringUtils.isBlank(line)) {
+				continue;
+			}
+
+			boolean handled = false;
+			for (CommandHandler handler : commandHandlers) {
+				try {
+					if (handler.handle(client, line)) {
+						handled = true;
+						break;
+					}
+				} catch (RuntimeException exception) {
+					LOGGER.error("Error occurred when trying to handle command", exception);
+				}
+			}
+			if (!handled) {
+				System.out.println("Unrecognized command: " + line);
+			}
+			showCommandHint();
 		}
 	}
 
