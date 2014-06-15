@@ -1,8 +1,13 @@
 package com.bradchen.jwormhole.client.console;
 
+import au.com.bytecode.opencsv.CSVReader;
 import com.bradchen.jwormhole.client.Client;
 import com.bradchen.jwormhole.client.Settings;
 import com.bradchen.jwormhole.client.SettingsUtils;
+import com.bradchen.jwormhole.client.console.commands.Command;
+import com.bradchen.jwormhole.client.console.commands.CommandFactory;
+import com.bradchen.jwormhole.client.console.commands.HelpCommandFactory;
+import com.bradchen.jwormhole.client.console.commands.QuitCommandFactory;
 import jline.TerminalFactory;
 import jline.console.ConsoleReader;
 import jline.console.history.FileHistory;
@@ -11,18 +16,26 @@ import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.PosixParser;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.regex.Pattern;
 
@@ -48,23 +61,48 @@ public final class ConsoleUI {
 	// command history path, relative to $HOME
 	private static final String HISTORY_PATH = ".jwormhole/history";
 
-	private static final String COMMAND_HANDLERS_SETTING = "console.commandHandlers";
+	private static final String CONSOLE_PLUGINS_SETTING = "console.plugins";
 	private static final String DEFAULT_SETTING_KEY = "default";
 	private static final Pattern HOST_KEY_PATTERN = Pattern.compile("^[-_.a-z0-9]+$",
 		Pattern.CASE_INSENSITIVE);
 	private static final Pattern JAR_FILE_PATTERN = Pattern.compile("\\.jar$",
 		Pattern.CASE_INSENSITIVE);
+	private static final Charset UTF8_CHARSET = Charset.forName("utf-8");
+	private static final String MOTD;
+
+	static {
+		InputStream in = null;
+		String motd;
+		try {
+			ClassLoader tcl = Thread.currentThread().getContextClassLoader();
+			in = tcl.getResourceAsStream("motd.txt");
+			motd = IOUtils.toString(in, UTF8_CHARSET);
+		} catch (IOException ignored) {
+			motd = "";
+		} finally {
+			IOUtils.closeQuietly(in);
+		}
+		MOTD = motd;
+	}
 
 	private final String[] args;
-	private final List<CommandHandler> commandHandlers;
+	private final List<ConsolePlugin> plugins;
+	private final Map<String, Command> commands;
+	private final Map<String, Command> commandAliases;
 
 	public ConsoleUI(String[] args) {
 		this.args = args;
-		this.commandHandlers = new ArrayList<>();
+		this.plugins = new ArrayList<>();
+		this.commands = new HashMap<>();
+		this.commandAliases = new HashMap<>();
 	}
 
-	public void addCommandHandler(CommandHandler commandHandler) {
-		commandHandlers.add(commandHandler);
+	public Map<String, Command> getCommands() {
+		return Collections.unmodifiableMap(commands);
+	}
+
+	public Map<String, Command> getCommandAliases() {
+		return Collections.unmodifiableMap(commandAliases);
 	}
 
 	public void run() throws IOException, ParseException {
@@ -91,7 +129,8 @@ public final class ConsoleUI {
 		final Properties defaultSettings = getDefaultSettings();
 		final Properties overrideSettings = getOverrideSettings();
 		final Settings settings = new Settings(defaultSettings, overrideSettings, server);
-		loadCommandHandlers(defaultSettings, overrideSettings, server);
+		loadPlugins(defaultSettings, overrideSettings, server);
+		loadCommands();
 
 		// start client
 		final Client client = new Client(settings, new ConsoleUserInfo());
@@ -111,11 +150,16 @@ public final class ConsoleUI {
 		}
 
 		// load history and register shutdown hook
-		System.out.println("Proxying " + domainName + " to localhost:" + localPort + "...");
 		String historyFilePath = System.getenv("HOME") + File.separator + HISTORY_PATH;
 		final FileHistory history = new FileHistory(new File(historyFilePath));
 		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 			client.shutdown();
+			for (ConsolePlugin plugin : plugins) {
+				try {
+					plugin.shutdown();
+				} catch (RuntimeException ignored) {
+				}
+			}
 			try {
 				history.flush();
 			} catch (IOException ignored) {
@@ -126,44 +170,68 @@ public final class ConsoleUI {
 			}
 		}));
 
-		// start to read line from console
-		showCommandHint();
+		// show MOTD
+		System.out.println(MOTD);
+		System.out.println("   proxying " + domainName + " to localhost:" + localPort + "...\n");
+
+		// start to read commands from console
+		System.out.println("Enter command (help to see a list of commands):");
 		ConsoleReader console = new ConsoleReader();
 		console.setHistory(history);
-		console.setPrompt("> ");
+		console.setPrompt("[" + domainName + "~>" + localPort + "]$ ");
 		String line;
 		while ((line = console.readLine()) != null) {
 			if (StringUtils.isBlank(line)) {
 				continue;
 			}
 
-			boolean handled = false;
-			for (CommandHandler handler : commandHandlers) {
-				try {
-					if (handler.handle(client, line)) {
-						handled = true;
-						break;
-					}
-				} catch (RuntimeException exception) {
-					LOGGER.error("Error occurred when trying to handle command", exception);
+			String[] tokens = parseCommand(line);
+			if ((tokens == null) || (tokens.length == 0)) {
+				LOGGER.warn("Error occurred when parsing command.");
+				continue;
+			}
+
+			Command command = commands.containsKey(tokens[0]) ? commands.get(tokens[0])
+				: commandAliases.get(tokens[0]);
+			if (command == null) {
+				System.err.println("Unrecognized command: " + line + "\n");
+				continue;
+			}
+
+			try {
+				Command.ArgumentsList argumentsList = new Command.ArgumentsList(command);
+				if (!argumentsList.parseValues(tokens)) {
+					command.printUsage();
+					System.out.println();
+					continue;
 				}
+				command.handle(client, argumentsList);
+				System.out.println();
+			} catch (RuntimeException exception) {
+				LOGGER.error("Error occurred when trying to handle command", exception);
 			}
-			if (!handled) {
-				System.out.println("Unrecognized command: " + line);
-			}
-			showCommandHint();
 		}
 	}
 
-	private void loadCommandHandlers(Properties defaultSettings, Properties overrideSettings,
-									 String server) {
-		// default one bundled
-		addCommandHandler(new QuitCommandHandler());
+	private String[] parseCommand(String command) {
+		InputStream in = new ByteArrayInputStream(command.getBytes(UTF8_CHARSET));
+		CSVReader reader = new CSVReader(new InputStreamReader(in), ' ');
+		try {
+			return reader.readNext();
+		} catch (IOException exception) {
+			LOGGER.warn("Unable to parse command.", exception);
+			return null;
+		} finally {
+			IOUtils.closeQuietly(reader);
+		}
+	}
 
+	private void loadPlugins(Properties defaultSettings, Properties overrideSettings,
+							 String server) {
 		// see if we need to load any..
-		String handlersSetting = SettingsUtils.getSetting(defaultSettings, overrideSettings,
-			Settings.SETTING_PREFIX, null, COMMAND_HANDLERS_SETTING);
-		if (StringUtils.isBlank(handlersSetting)) {
+		String pluginsSettings = SettingsUtils.getSetting(defaultSettings, overrideSettings,
+				Settings.SETTING_PREFIX, null, CONSOLE_PLUGINS_SETTING);
+		if (StringUtils.isBlank(pluginsSettings)) {
 			return;
 		}
 
@@ -174,26 +242,50 @@ public final class ConsoleUI {
 
 		// initialize handlers
 		try {
-			for (String handlerClassName : handlersSetting.split(",")) {
-				if (StringUtils.isBlank(handlerClassName)) {
+			for (String pluginClassName : pluginsSettings.split(",")) {
+				if (StringUtils.isBlank(pluginClassName)) {
 					continue;
 				}
-				Class<?> handlerClass = Class.forName(handlerClassName.trim(), true, classLoader);
-				if (!CommandHandler.class.isAssignableFrom(handlerClass)) {
+				Class<?> pluginClass = Class.forName(pluginClassName.trim(), true, classLoader);
+				if (!ConsolePlugin.class.isAssignableFrom(pluginClass)) {
 					throw new RuntimeException("Invalid CommandHandler class: " +
-						handlerClass.getName());
+						pluginClass.getName());
 				}
 
-				CommandHandler handler = (CommandHandler)handlerClass.getConstructor()
-					.newInstance();
-				handler.configure(overrideSettings, server);
-				addCommandHandler(handler);
+				ConsolePlugin plugin = (ConsolePlugin)pluginClass.getConstructor().newInstance();
+				plugin.configure(overrideSettings, server);
+				plugins.add(plugin);
 			}
 		} catch (ClassNotFoundException exception) {
 			throw new RuntimeException("Unable to load CommandHandler class.", exception);
 		} catch (NoSuchMethodException | InstantiationException | IllegalAccessException |
 				InvocationTargetException exception) {
 			throw new RuntimeException("Unable to instantiate CommandHandler.", exception);
+		}
+	}
+
+	private void loadCommands() {
+		List<CommandFactory> commandFactories = new ArrayList<>();
+		commandFactories.add(new QuitCommandFactory());
+		commandFactories.add(new HelpCommandFactory(this));
+		for (ConsolePlugin plugin : plugins) {
+			List<CommandFactory> factories = plugin.getCommandFactories();
+			if ((factories != null) && !factories.isEmpty()) {
+				commandFactories.addAll(factories);
+			}
+		}
+		for (CommandFactory factory : commandFactories) {
+			Command command = factory.createCommand();
+			commands.put(command.getName(), command);
+
+			List<String> aliases = command.getAliases();
+			if (aliases == null) {
+				continue;
+			}
+
+			for (String alias : aliases) {
+				commandAliases.put(alias, command);
+			}
 		}
 	}
 
@@ -231,21 +323,6 @@ public final class ConsoleUI {
 
 	private static Properties getOverrideSettings() throws IOException {
 		return readSettingsFromFileRelativeToHome(OVERRIDE_SETTINGS_FILE);
-	}
-
-	private void showCommandHint() {
-		List<String> allHints = new ArrayList<>(commandHandlers.size());
-		for (CommandHandler handler : commandHandlers) {
-			List<String> hints = handler.getCommandHints();
-			if (hints != null) {
-				allHints.addAll(hints);
-			}
-		}
-		System.out.print("\nPlease enter command");
-		if (allHints.size() > 0) {
-			System.out.print(" (" + StringUtils.join(allHints, ", ") + ")");
-		}
-		System.out.println(":");
 	}
 
 	private boolean validateArgs() {
