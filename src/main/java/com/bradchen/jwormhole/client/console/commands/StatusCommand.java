@@ -5,15 +5,20 @@ import com.bradchen.jwormhole.client.Settings;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.Properties;
 
 public class StatusCommand extends Command {
 
 	private static final DateFormat DATE_TIME_FORMAT
 		= new SimpleDateFormat("yyyy-MM-dd HH:mm:ss z");
+
+	private final Properties gitProperties;
+
+	public StatusCommand(Properties gitProperties) {
+		this.gitProperties = gitProperties;
+	}
 
 	@Override
 	public String getName() {
@@ -53,6 +58,10 @@ public class StatusCommand extends Command {
 		// proxy
 		System.out.println("Proxied domain:\t\t" + client.getProxiedDomainName());
 		System.out.println("Local port:\t\t" + client.getLocalPort());
+
+		// current commit
+		System.out.println("Git commit:\t\t" + gitProperties.get("git.commit.id.abbrev") + " (" +
+			gitProperties.get("git.commit.time") + ")");
 	}
 
 }

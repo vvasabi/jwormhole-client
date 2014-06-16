@@ -1,4 +1,5 @@
 rebel.xml
 /*.iml
 /.idea
+/src/main/resources/git.properties
 /target

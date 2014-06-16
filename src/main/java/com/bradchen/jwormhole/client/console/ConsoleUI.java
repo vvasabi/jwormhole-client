@@ -286,7 +286,7 @@ public final class ConsoleUI {
 		}
 	}
 
-	private void loadCommands() {
+	private void loadCommands() throws IOException {
 		List<CommandFactory> commandFactories = new ArrayList<>();
 		commandFactories.add(new QuitCommandFactory());
 		commandFactories.add(new HelpCommandFactory(this));

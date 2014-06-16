@@ -82,6 +82,28 @@
 					<mainClass>${main.class}</mainClass>
 				</configuration>
 			</plugin>
+
+			<plugin>
+				<groupId>pl.project13.maven</groupId>
+				<artifactId>git-commit-id-plugin</artifactId>
+				<version>2.1.10</version>
+				<executions>
+					<execution>
+						<phase>compile</phase>
+						<goals>
+							<goal>revision</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<dateFormat>yyyy-MM-dd HH:mm:ss z</dateFormat>
+					<dotGitDirectory>${project.basedir}/.git</dotGitDirectory>
+					<generateGitPropertiesFile>true</generateGitPropertiesFile>
+					<generateGitPropertiesFilename>
+						src/main/resources/git.properties
+					</generateGitPropertiesFilename>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
 
