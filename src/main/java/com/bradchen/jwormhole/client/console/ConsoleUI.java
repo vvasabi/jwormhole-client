@@ -8,6 +8,7 @@ import com.bradchen.jwormhole.client.console.commands.Command;
 import com.bradchen.jwormhole.client.console.commands.CommandFactory;
 import com.bradchen.jwormhole.client.console.commands.HelpCommandFactory;
 import com.bradchen.jwormhole.client.console.commands.QuitCommandFactory;
+import com.bradchen.jwormhole.client.console.commands.StatusCommandFactory;
 import jline.TerminalFactory;
 import jline.console.ConsoleReader;
 import jline.console.history.FileHistory;
@@ -136,39 +137,40 @@ public final class ConsoleUI {
 		final Client client = new Client(settings, new ConsoleUserInfo());
 		client.addConnectionClosedHandler(new ConsoleConnectionClosedHandler());
 		client.connect();
-		String domainName = client.proxyLocalPort(localPort, hostName);
+
+		// proxy local port
+		String domainName = proxyLocalPort(client, localPort, hostName);
 		if (domainName == null) {
 			client.shutdown();
-			if (hostName == null) {
-				System.err.println("jWormhole server unavailable on this server.");
-			} else {
-				System.err.println("jWormhole server unavailable on this server, or specified " +
-					"host name unavailable.");
-			}
 			System.exit(1);
-			return;
 		}
 
-		// load history and register shutdown hook
-		String historyFilePath = System.getenv("HOME") + File.separator + HISTORY_PATH;
-		final FileHistory history = new FileHistory(new File(historyFilePath));
-		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-			client.shutdown();
-			for (ConsolePlugin plugin : plugins) {
-				try {
-					plugin.shutdown();
-				} catch (RuntimeException ignored) {
+		// listen for user commands
+		startConsole(client, domainName, localPort);
+	}
+
+	private String proxyLocalPort(Client client, int localPort, String hostName) {
+		String domainName = null;
+		try {
+			domainName = client.proxyLocalPort(localPort, hostName);
+			if (domainName == null) {
+				if (hostName == null) {
+					System.err.println("jWormhole server unavailable on this server.");
+				} else {
+					System.err.println("Host name specified is in use.");
 				}
 			}
-			try {
-				history.flush();
-			} catch (IOException ignored) {
-			}
-			try {
-				TerminalFactory.get().restore();
-			} catch (Exception ignored) {
-			}
-		}));
+		} catch (IOException exception) {
+			LOGGER.error("Unable to proxy local port.", exception);
+		}
+		return domainName;
+	}
+
+	private void startConsole(Client client, String domainName, int localPort) throws IOException {
+		// load history and register shutdown hook
+		String historyFilePath = System.getenv("HOME") + File.separator + HISTORY_PATH;
+		FileHistory history = new FileHistory(new File(historyFilePath));
+		registerShutdownHook(client, history);
 
 		// show MOTD
 		System.out.println(MOTD);
@@ -192,7 +194,7 @@ public final class ConsoleUI {
 			}
 
 			Command command = commands.containsKey(tokens[0]) ? commands.get(tokens[0])
-				: commandAliases.get(tokens[0]);
+					: commandAliases.get(tokens[0]);
 			if (command == null) {
 				System.err.println("Unrecognized command: " + line + "\n");
 				continue;
@@ -211,6 +213,26 @@ public final class ConsoleUI {
 				LOGGER.error("Error occurred when trying to handle command", exception);
 			}
 		}
+	}
+
+	private void registerShutdownHook(Client client, FileHistory history) {
+		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+			client.shutdown();
+			for (ConsolePlugin plugin : plugins) {
+				try {
+					plugin.shutdown();
+				} catch (RuntimeException ignored) {
+				}
+			}
+			try {
+				history.flush();
+			} catch (IOException ignored) {
+			}
+			try {
+				TerminalFactory.get().restore();
+			} catch (Exception ignored) {
+			}
+		}));
 	}
 
 	private String[] parseCommand(String command) {
@@ -268,6 +290,7 @@ public final class ConsoleUI {
 		List<CommandFactory> commandFactories = new ArrayList<>();
 		commandFactories.add(new QuitCommandFactory());
 		commandFactories.add(new HelpCommandFactory(this));
+		commandFactories.add(new StatusCommandFactory());
 		for (ConsolePlugin plugin : plugins) {
 			List<CommandFactory> factories = plugin.getCommandFactories();
 			if ((factories != null) && !factories.isEmpty()) {

@@ -35,6 +35,7 @@ public class Client {
 	private static final String LOCALHOST = "127.0.0.1";
 	private static final int MAX_NUM_RETRIES = 3;
 	private static final int RETRY_WAIT_TIME = 3;
+	private static final String OK = "ok";
 
 	private final Settings settings;
 	private final JSch jsch;
@@ -46,12 +47,25 @@ public class Client {
 	private int localPort;
 	private int localControllerPort;
 	private int numRetries;
+	private long proxyStartTime;
 
 	public Client(Settings settings, UserInfo userInfo) throws IOException {
 		this.settings = settings;
 		this.jsch = new JSch();
 		this.userInfo = userInfo;
 		this.connectionClosedHandlers = new ArrayList<>();
+	}
+
+	public Settings getSettings() {
+		return settings;
+	}
+
+	public int getLocalPort() {
+		return localPort;
+	}
+
+	public long getProxyStartTime() {
+		return proxyStartTime;
 	}
 
 	public String getProxiedDomainName() {
@@ -114,6 +128,9 @@ public class Client {
 			result = executeCommand("createHost " + name);
 		}
 		if (StringUtils.isBlank(result)) {
+			throw new IOException("No response from jWormhole Server.");
+		}
+		if ("error".equals(result)) {
 			return null;
 		}
 		String[] tokens = result.trim().split(",");
@@ -122,6 +139,9 @@ public class Client {
 		}
 		host = new Host(tokens[0], tokens[1], Integer.parseInt(tokens[2]));
 		this.localPort = localPort;
+		if (proxyStartTime == 0) {
+			proxyStartTime = System.currentTimeMillis();
+		}
 		establishLocalPortForwarding(localPort);
 		scheduleKeepaliveWorker();
 		return host.getDomainName();
@@ -138,18 +158,22 @@ public class Client {
 	}
 
 	private void keepHostAlive() {
-		try {
-			session.sendKeepAliveMsg();
-			String response = executeCommand("keepHostAlive " + host.getDomainName());
-			if (StringUtils.isBlank(response)) {
-				return;
-			}
-		} catch (Exception ignored) {
+		if (sendKeepaliveMessage()) {
+			return;
 		}
 
 		// connection unavailable; attempt to recreate connection
 		numRetries = 0;
 		scheduler.schedule(new ReconnectWorker(), 0, TimeUnit.SECONDS);
+	}
+
+	private boolean sendKeepaliveMessage() {
+		try {
+			session.sendKeepAliveMsg();
+			return OK.equals(executeCommand("keepHostAlive " + host.getDomainName()));
+		} catch (Exception ignored) {
+			return false;
+		}
 	}
 
 	private void establishLocalPortForwarding(int localPort) throws IOException {
@@ -202,7 +226,7 @@ public class Client {
 				} catch (InterruptedException ignored) {
 				}
 			}
-			return sb.toString();
+			return sb.toString().trim();
 		}
 	}
 
@@ -221,19 +245,21 @@ public class Client {
 			try {
 				shutdown();
 				connect();
-				proxyLocalPort(localPort, host.getName());
-			} catch (IOException exception) {
-				numRetries++;
-				if (numRetries < MAX_NUM_RETRIES) {
-					LOGGER.warn("Failed to reestablish connection with jWormhole server. Will " +
-						"retry in " + RETRY_WAIT_TIME + " seconds...", exception);
-					scheduler.schedule(new ReconnectWorker(), RETRY_WAIT_TIME, TimeUnit.SECONDS);
-				} else {
-					LOGGER.warn("Unable to connect to jWormhole server.", exception);
-					shutdown();
-					connectionClosedHandlers.parallelStream().forEach(handler ->
-							handler.connectionClosed(localPort, host.getDomainName()));
+				if ((proxyLocalPort(localPort, host.getName()) != null) || sendKeepaliveMessage()) {
+					return;
 				}
+			} catch (IOException exception) {
+				LOGGER.warn("Failed to connect to jWormhole server.", exception);
+			}
+
+			numRetries++;
+			if (numRetries < MAX_NUM_RETRIES) {
+				System.out.println("Will try again in " + RETRY_WAIT_TIME + " seconds...");
+				scheduler.schedule(new ReconnectWorker(), RETRY_WAIT_TIME, TimeUnit.SECONDS);
+			} else {
+				shutdown();
+				connectionClosedHandlers.parallelStream().forEach(handler ->
+					handler.connectionClosed(localPort, host.getDomainName()));
 			}
 		}
 
