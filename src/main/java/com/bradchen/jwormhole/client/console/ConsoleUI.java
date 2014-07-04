@@ -9,7 +9,6 @@ import com.bradchen.jwormhole.client.console.commands.CommandFactory;
 import com.bradchen.jwormhole.client.console.commands.HelpCommandFactory;
 import com.bradchen.jwormhole.client.console.commands.QuitCommandFactory;
 import com.bradchen.jwormhole.client.console.commands.StatusCommandFactory;
-import jline.TerminalFactory;
 import jline.console.ConsoleReader;
 import jline.console.history.FileHistory;
 import org.apache.commons.cli.CommandLine;
@@ -227,10 +226,6 @@ public final class ConsoleUI {
 			try {
 				history.flush();
 			} catch (IOException ignored) {
-			}
-			try {
-				TerminalFactory.get().restore();
-			} catch (Exception ignored) {
 			}
 		}));
 	}

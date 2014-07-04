@@ -18,7 +18,7 @@ public class TestSettings {
 		assertEquals(settings.getServerSshPort(), 22);
 		assertEquals(settings.getServerUsername(), "");
 		assertEquals(settings.getServerControllerPort(), 12700);
-		assertEquals(settings.getKeepaliveInterval(), 20);
+		assertEquals(settings.getKeepaliveInterval(), 10);
 	}
 
 	@Test
